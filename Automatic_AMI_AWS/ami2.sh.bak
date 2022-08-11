@@ -1,0 +1,29 @@
+#!/bin/bash
+#Script to create AMI of server and tag it with the instanceid
+#instance_list file will be generated having the location same as that of this script containing the instanceid of running and for whom the ami is generated
+
+echo -e "----------------------------------\n   `date`   \n----------------------------------"
+
+#Filtering out the running aws instances
+aws ec2 describe-instances --query 'Reservations[*].Instances[*].[InstanceId]' --filters Name=instance-state-name,Values=running --output text > $PWD/instance_list
+
+input="$PWD/instance_list"
+while read instanceid
+do
+echo -e "Starting the Daily AMI creation for instance:" $instanceid
+date=$(date +%d%b%y)
+
+#To create the tag name for AMI
+tag_name=$(aws ec2 describe-instances --instance-ids $instanceid --output table --query 'Reservations[].Instances[].[Tags[?Key==`Name`] | [0].Value, State.Name]' | awk 'NR==4{print $2}')
+
+#To create AMI of defined instance
+ami_id=$(aws ec2 create-image --instance-id $instanceid --name " $instanceid created on $date" --description "This AMI is created from instance $tag_name on $date" --no-reboot | grep -i ami | awk '{print $4}')
+sleep 5
+
+#To tag the AMI Generated with the Instance Name
+aws ec2 create-tags --resources $ami_id --tags Key=Name,Value=$tag_name
+
+#Displaying the AMI associated with AWS Instance 
+echo -e $instanceid is having ami as: $ami_id
+sleep 5
+done < "$input"

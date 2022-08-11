@@ -1,0 +1,102 @@
+#!/usr/bin/python
+
+# from pprint import pprint
+import boto
+import boto.ec2
+import time
+import os
+import sys
+import logging
+import datetime
+import smtplib
+import ami_backup_config
+from time import mktime
+import smtplib
+from email.MIMEMultipart import MIMEMultipart
+from email.MIMEText import MIMEText
+
+logger = logging.getLogger('AMIBackup')
+logger.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(lineno)d - %(asctime)s - %(levelname)s - %(message)s')
+fh = logging.FileHandler('/tmp/AMI_BACKUP.txt')
+fh.setLevel(logging.DEBUG)
+fh.setFormatter(formatter)
+logger.addHandler(fh)
+signature = "_bkp_"
+
+for server in servers:
+    server_name = server['name']
+    account_profile = server['profile']
+    server_pattern = server['pattern']
+    server_region = server['region']
+
+# from boto.ec2.connection import EC2Connection
+print "Connecting to EC2..."
+
+conn = boto.ec2.connect_to_region(server_region, aws_access_key_id="AKIAINQZXOVR6H4GCEQQ",
+                                  aws_secret_access_key='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')
+print "Connected to EC2"
+
+if (len(reservations) == 0):
+    print "Error - Unable to find running instances. Please check if servers are running"
+    logger.error("Unable to find running instances. Please check if servers are running")
+
+print "Starting the AMI creation of all the Running Instances..."
+# def get_ec2_instances(region):
+#    ec2_conn = boto.ec2.connect_to_region(region,
+#                aws_access_key_id=access_key,
+#                aws_secret_access_key=secret_key)
+# region="ap-south-1"
+reservations = conn.get_all_instances(filters={'instance-state-name': 'running'})
+for reservation in reservations:
+    for instance in reservation.instances:
+        instance_name = instance.tags['Name']
+        instance_id = instance.id
+        print instance_id + " is running  having instance name as " + instance_name
+        current_datetime = datetime.datetime.now()
+        date_stamp = current_datetime.strftime("%Y%m%d %H.%M")
+        ami_name = str(instance_name) + " created on " + str(date_stamp)
+        try:
+            print "Starting for instance: " + str(instance_name)
+            ami_id = instance.create_image(ami_name, description="Created by AMI Backup", no_reboot=True, dry_run=False)
+            print "AMI id is: " + ami_id
+            logger.info(
+                "AMI of " + instance_name + " " + " with instanceid: " + instanceid + " having ami name as: " + ami_name + " with ami_id as: " + ami_id + " is created")
+            imgs = conn.get_image(ami_id)
+            # img=imgs[0]
+            while imgs.state == 'pending':
+                time.sleep(2)
+                imgs.update()
+
+            if imgs.state == 'available':
+                print "Tagging the ami created: " + ami_id
+                imgs.add_tag("Name", instance_name)
+
+                # Sending Mail on Successful Tag Addition
+                #					fromaddr = "pranav.bhardwaj@imaginea.com"
+                #					toaddr = "pranav.bhardwaj@imaginea.com"
+                #					msg = MIMEMultipart()
+                #					msg['From'] = fromaddr
+                #					msg['To'] = toaddr
+                #					msg['Subject'] = "AMI is succefully Generated for " + str(instance_name)
+                # 					body = "The AMI is created succefully"
+                #					msg.attach(MIMEText(body, 'plain'))
+                # 					server = smtplib.SMTP('smtp.gmail.com', 587)
+                #					server.starttls()
+                #					server.login(fromaddr, "Maruti@2017")
+                #					text = msg.as_string()
+                #					server.sendmail(fromaddr, toaddr, text)
+                #					server.quit()
+
+                logger.info(
+                    "Backup of " + instance_name + ": " + ami_name + "having ami_id as: " + ami_id + " is created")
+            else:
+                logger.error(
+                    "Backup of " + instance_name + ": " + ami_name + "having ami_id as: " + ami_id + " is failed")
+            #			print instance_name "having "+ instance_id+ " has created AMI with ami_id as: "+ ami_id
+
+        except Exception, e:
+            logger.error("Backup of " + instance_name + ": " + ami_name + "having ami_id as: " + ami_id + " is failed")
+
+        time.sleep(5)
+        continue
